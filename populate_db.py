@@ -34,7 +34,6 @@ VALID_SUBJECTS = [
     "sleep science", "geopolitics", "health & fitness", "social sciences",
 ]
 
-MIN_CITATIONS    = 2    # minimum citation count (Semantic Scholar)
 WINDOW_SIZE      = 4    # number of sources active per populate call
 
 # ─────────────────────────────────────────────
@@ -802,14 +801,17 @@ Return a JSON object with a single key "decisions" containing an array. Each ele
   {"doi": "<doi>", "suitable": true/false, "card_title": "<title or null>", "card_intro": "<intro or null>"}
 """
 
+
 class CardDecision(BaseModel):
     doi:        str
     suitable:   bool
     card_title: Optional[str] = None
     card_intro: Optional[str] = None
 
+
 class CardBatch(BaseModel):
     decisions: list[CardDecision]
+
 
 def _llm_quality_and_cards(papers: list[dict]) -> dict[str, CardDecision]:
     """
@@ -852,6 +854,7 @@ FETCHERS = [
     ("base",             _base_fetch),
 ]
 
+
 def _fetch_from_source(source_name: str, fetcher, subject: str,
                        state: dict, conn: sqlite3.Connection) -> tuple[list[dict], bool]:
     """
@@ -893,6 +896,7 @@ def _fetch_from_source(source_name: str, fetcher, subject: str,
 
     exhausted = len(main) == 0
     return papers, exhausted
+
 
 def _process_papers(papers: list[dict], subject: str,
                     conn: sqlite3.Connection) -> tuple[int, int]:
@@ -944,6 +948,7 @@ def _process_papers(papers: list[dict], subject: str,
 
     return inserted, tombstoned
 
+
 def populate(subjects: Optional[list[str]] = None) -> None:
     """
     Single-pass fetch for each subject using a rolling window of WINDOW_SIZE sources.
@@ -992,6 +997,7 @@ def populate(subjects: Optional[list[str]] = None) -> None:
     conn.close()
     print("\n[populate] done.")
 
+
 def unserved_count(subject: str) -> int:
     """Return count of unserved quality-approved papers with full text for a subject."""
     conn = get_conn()
@@ -1002,6 +1008,7 @@ def unserved_count(subject: str) -> int:
     ).fetchone()
     conn.close()
     return row["n"] if row else 0
+
 
 # ─────────────────────────────────────────────
 # 6) Reading list / saved DB operations
@@ -1017,6 +1024,7 @@ def mark_served(doi: str) -> None:
     conn.commit()
     conn.close()
 
+
 def get_reading_list() -> list[dict]:
     """Articles in reading list, sorted by generation time (newest first)."""
     conn = get_conn()
@@ -1027,6 +1035,7 @@ def get_reading_list() -> list[dict]:
     conn.close()
     return [dict(r) for r in rows]
 
+
 def get_saved() -> list[dict]:
     """Articles marked saved/liked, sorted by generation time (newest first)."""
     conn = get_conn()
@@ -1036,6 +1045,7 @@ def get_saved() -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
 
 def move_to_saved(dois: list[str]) -> None:
     """Move articles from reading list to saved/liked atomically."""
@@ -1049,6 +1059,7 @@ def move_to_saved(dois: list[str]) -> None:
     conn.commit()
     conn.close()
 
+
 def delete_articles(dois: list[str]) -> None:
     """Remove articles from reading list or saved. served stays 1 — paper never resurfaces as a card."""
     if not dois:
@@ -1061,6 +1072,7 @@ def delete_articles(dois: list[str]) -> None:
     conn.commit()
     conn.close()
 
+
 def mark_in_reading_list(doi: str, filename: str = "") -> None:
     """Mark paper as in reading list with filename. card_intro preserved from populate time."""
     conn = get_conn()
@@ -1072,6 +1084,9 @@ def mark_in_reading_list(doi: str, filename: str = "") -> None:
     )
     conn.commit()
     conn.close()
+
+
+
 
 # ─────────────────────────────────────────────
 # 7) Entry point

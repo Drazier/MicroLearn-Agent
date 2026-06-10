@@ -284,48 +284,7 @@ def fetch_and_index_for_deepdive(doi: str) -> str:
 
 
 # ─────────────────────────────────────────────
-# 6) discovery_node
-# ─────────────────────────────────────────────
-
-def discovery_node(subjects: List[str]) -> List[ArticleCard]:
-    n_subjects = len(subjects)
-
-    base      = TARGET_CARDS // n_subjects
-    remainder = TARGET_CARDS % n_subjects
-    alloc     = [base + (1 if i < remainder else 0) for i in range(n_subjects)]
-
-    new_cards: list[ArticleCard] = []
-    next_id = 0
-
-    for subject, n in zip(subjects, alloc):
-        rows = _query_db_for_subject(subject, n)
-        for row in rows:
-            doi = row.get("doi")
-            if not doi:
-                continue
-            card = ArticleCard(
-                id           = next_id,
-                subject      = subject,
-                title        = row.get("card_title") or row.get("title") or "",
-                intro        = row.get("card_intro") or "",
-                doi          = doi,
-                source       = row.get("source"),
-                published_at = str(row["published_at"])[:10] if row.get("published_at") else None,
-            )
-            new_cards.append(card)
-            next_id += 1
-            _mark_served(doi)
-
-    return new_cards
-
-
-
-
-
-
-
-# ─────────────────────────────────────────────
-# 7) fetcher_node
+# 6) fetcher_node
 # ─────────────────────────────────────────────
 
 def fetcher_node(state: State) -> dict:
@@ -339,7 +298,7 @@ def fetcher_node(state: State) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 8) orchestrator_node
+# 7) orchestrator_node
 # ─────────────────────────────────────────────
 
 ORCHESTRATOR_SYSTEM = """You are a senior editor planning a micro-learning article from a research paper.
@@ -351,7 +310,7 @@ STRUCTURE:
     - task_id: "intro"
     - Combines: hook that makes the reader want to read on + why this finding matters to a non-expert
 
-  MIDDLE (2-5 sections, mandatory coverage):
+  MIDDLE (2–5 sections, mandatory coverage):
     - Decide count, names, and content freely based on what the paper actually contains
     - task_id: a short descriptive slug you choose (e.g. "study_design", "key_finding", "mechanism")
     - Must collectively cover all important aspects of the paper — methodology, findings, mechanism, context, implications
@@ -412,8 +371,8 @@ def orchestrator_node(state: State) -> dict:
     source_block = (
         f"Full text indexed for RAG retrieval ({ft_words} chunks). "
         f"Workers retrieve precise chunks — write bullets as specific RAG queries.\n\n"
-        f"Full text (for planning context):\n{' '.join(full_text.split()[:12000])}"
-    ) if ft_words else f"Full text:\n{' '.join(full_text.split()[:12000])}" if full_text else "No full text available."
+        f"Full text (for planning context):\n{' '.join(full_text.split()[:3000])}"
+    ) if ft_words else f"Full text:\n{' '.join(full_text.split()[:3000])}" if full_text else "No full text available."
 
     planner = llm.with_structured_output(Plan)
     plan    = planner.invoke([
@@ -452,7 +411,7 @@ def fanout(state: State) -> list[Send]:
 
 
 # ─────────────────────────────────────────────
-# 9) worker_node — abstract as primary source
+# 8) worker_node — abstract as primary source
 # ─────────────────────────────────────────────
 
 WORKER_SYSTEM = """You are a science writer for a micro-learning platform.
@@ -547,7 +506,7 @@ def worker_node(payload: dict) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 10) reducer_node
+# 9) reducer_node
 # ─────────────────────────────────────────────
 
 def reducer_node(state: State) -> dict:
@@ -593,7 +552,7 @@ def reducer_node(state: State) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 11) loop_condition
+# 10) loop_condition
 # ─────────────────────────────────────────────
 
 def loop_condition(state: State) -> str:
@@ -603,7 +562,7 @@ def loop_condition(state: State) -> str:
 
 
 # ─────────────────────────────────────────────
-# 12) Build graph
+# 11) Build graph
 # ─────────────────────────────────────────────
 
 g = StateGraph(State)
@@ -628,7 +587,7 @@ app = g.compile(checkpointer=_checkpointer)
 
 
 # ─────────────────────────────────────────────
-# 13) Reading list persistence — DB-backed
+# 12) Reading list persistence — DB-backed
 # ─────────────────────────────────────────────
 
 def _slugify(text: str) -> str:
@@ -663,19 +622,39 @@ def save_article(article: dict) -> Path:
 
 
 # ─────────────────────────────────────────────
-# 14) Public API
+# 13) Public API
 # ─────────────────────────────────────────────
 
 def discovery(subjects: List[str]) -> List[ArticleCard]:
-    """
-    Calls discovery_node directly (no graph) and returns a list of ArticleCards.
-    Selection happens in the UI before app.invoke is called per card.
-    """
+    """Query DB for unserved papers, build and return ArticleCards."""
     subjects = [s for s in subjects if s in VALID_SUBJECTS]
     if not subjects:
         raise ValueError(f"No valid subjects. Choose from:\n{VALID_SUBJECTS}")
 
-    cards = discovery_node(subjects)
+    n_subjects = len(subjects)
+    base       = TARGET_CARDS // n_subjects
+    remainder  = TARGET_CARDS % n_subjects
+    alloc      = [base + (1 if i < remainder else 0) for i in range(n_subjects)]
+
+    cards:   list[ArticleCard] = []
+    next_id: int               = 0
+
+    for subject, n in zip(subjects, alloc):
+        for row in _query_db_for_subject(subject, n):
+            doi = row.get("doi")
+            if not doi:
+                continue
+            cards.append(ArticleCard(
+                id           = next_id,
+                subject      = subject,
+                title        = row.get("card_title") or row.get("title") or "",
+                intro        = row.get("card_intro") or "",
+                doi          = doi,
+                source       = row.get("source"),
+                published_at = str(row["published_at"])[:10] if row.get("published_at") else None,
+            ))
+            next_id += 1
+            _mark_served(doi)
 
     print(f"\n{'='*80}")
     print(f"SUBJECTS        : {subjects}")
